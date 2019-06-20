@@ -6,6 +6,7 @@ import nibabel as nb
 import numpy as np
 import os
 from .brain.mgdm_segmentation import mgdm_segmentation
+from .segmentation.distance_based_probability import distance_based_probability
 from .brain.enhance_region_contrast import enhance_region_contrast
 from .surface.probability_to_levelset import probability_to_levelset
 from .brain.define_multi_region_priors import define_multi_region_priors
@@ -73,6 +74,58 @@ class MGDMSegmentation(BaseInterface):
         outputs["distance"] = os.path.abspath(base + '_mgdm_dist.nii.gz')
         return outputs
 
+
+class DistanceBasedProbabilityInputSpec(BaseInterfaceInputSpec):
+    
+    segmentation_image = File(exists=True, desc='specify a segmentation image', mandatory=True)
+    #probability_image = File(exists=True, desc='specify an intensity image', mandatory=True)
+    #bg_dist_mm = File(exists=True, desc='specify a levelset boundary image', mandatory=True)
+    #bg_proba = File(exists=True, desc='Path to plain text atlas file', mandatory=True)
+                            
+    #dist_ratio = traits.Str(argstr='%s', desc='which region you want to extract', mandatory=True)
+    #bg_included = traits.Str(argstr='%s', desc='the other region in brain I guess', mandatory=True)
+    #proba_merging = traits.Str(argstr='%s',desc='partial voluming distance',mandatory=True)
+    save_data = traits.Bool(True, desc='Save output data to file', usedefault=True)
+    output_dir = traits.Str(argstr='%s', desc='output directory', mandatory=True)
+    
+
+class DistanceBasedProbabilityOutputSpec(TraitedSpec):
+    
+    prob_image = File(exists=True, desc="Hard brain segmentation with topological constraints (if chosen)")
+    max_label = File(exists=True, desc="Hard brain segmentation with topological constraints (if chosen)")
+    mgdm_image = File(exists=True, desc="Hard brain segmentation with topological constraints (if chosen)")
+    bg_mask = File(exists=True, desc="Hard brain segmentation with topological constraints (if chosen)")
+    #label_number = File(exists=True, desc="Hard brain segmentation with topological constraints (if chosen)")
+
+
+class DistanceBasedProbability(BaseInterface):
+    input_spec = DistanceBasedProbabilityInputSpec
+    output_spec = DistanceBasedProbabilityOutputSpec
+
+    def _run_interface(self, runtime):
+        
+        distance_based_probability(segmentation_image = self.inputs.segmentation_image,
+                                   #probability_image = self.inputs.probability_image, 
+                                   #bg_dist_mm = self.inputs.bg_dist_mm, 
+                                   #bg_proba = self.inputs.bg_proba, 
+                                   #dist_ratio = self.inputs.dist_ratio,
+                                   #bg_included = self.inputs.bg_included, 
+                                   proba_merging = "product",
+                                   save_data = self.inputs.save_data, 
+                                   output_dir = self.inputs.output_dir)
+
+        return runtime
+
+    def _list_outputs(self):
+        outputs = self._outputs().get()
+        fname = self.inputs.segmentation_image
+        path, base, ext = split_filename(fname)
+        outputs["prob_image"] = os.path.abspath(base + '_prob_image.nii.gz')
+        outputs["max_label"] = os.path.abspath(base + '_max_label.nii.gz')
+        outputs["mgdm_image"] = os.path.abspath(base + '_mgdm_image.nii.gz')
+        outputs["bg_mask"] = os.path.abspath(base + '_bg_mask.nii.gz')
+        #outputs["label_number"] = os.path.abspath(base + '_labels.nii.gz')
+        return outputs
 
 
 class EnhanceRegionContrastInputSpec(BaseInterfaceInputSpec):

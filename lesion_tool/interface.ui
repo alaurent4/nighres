@@ -91,6 +91,13 @@
      <item>
       <layout class="QHBoxLayout" name="horizontalLayout">
        <item>
+        <widget class="QPushButton" name="selectFromFile">
+         <property name="text">
+          <string>Check from file</string>
+         </property>
+        </widget>
+       </item>
+       <item>
         <widget class="QPushButton" name="selectionToggle">
          <property name="text">
           <string>Check selected</string>
@@ -380,6 +387,19 @@
     </property>
     <property name="description">
      <string/>
+    </property>
+   </widget>
+   <widget class="QCheckBox" name="skipDownload">
+    <property name="geometry">
+     <rect>
+      <x>20</x>
+      <y>500</y>
+      <width>281</width>
+      <height>21</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Skip downloading part</string>
     </property>
    </widget>
   </widget>

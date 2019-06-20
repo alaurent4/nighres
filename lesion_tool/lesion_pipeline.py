@@ -7,19 +7,22 @@ import os
 import cbstools
 from nipype.pipeline.engine import Workflow, Node
 from nipype.interfaces.base import traits, File
-from nipype.interfaces.utility import IdentityInterface
-from nipype.interfaces.dcm2nii import Dcm2nii
-from nipype.interfaces.io import DataGrabber
+from nipype.interfaces.utility import IdentityInterface, Function
+from nipype.interfaces.io import DataGrabber, FreeSurferSource
 from nipype.interfaces.ants.segmentation import N4BiasFieldCorrection
-from nipype.interfaces.fsl.preprocess import BET
-from nipype.interfaces.fsl.preprocess import FLIRT
-from nipype.interfaces.fsl.maths import ApplyMask, Threshold
+from nipype.interfaces.fsl.preprocess import BET, FLIRT
+from nipype.interfaces.fsl.maths import ApplyMask, Threshold, UnaryMaths
 from nipype.interfaces.fsl.utils import ImageMaths, Reorient2Std, Split
 from nipype.interfaces.fsl.base import FSLCommandInputSpec
 from nipype.interfaces.fsl import ImageStats
+from nipype.interfaces.freesurfer.preprocess import MRIConvert, FreeSurferSource
 from nipype.interfaces.utility import Function
+
+from .custom_fxns import convertLabels
+
 #import nighres
-from nighres.nighres.wrappers import MGDMSegmentation, EnhanceRegionContrast, ProbabilityToLevelset, DefineMultiRegionPriors, RecursiveRidgeDiffusion, LesionExtraction
+from nighres.nighres.wrappers import MGDMSegmentation, EnhanceRegionContrast, ProbabilityToLevelset, DefineMultiRegionPriors, \
+                                     RecursiveRidgeDiffusion, LesionExtraction, DistanceBasedProbability
 
 class AbcImageMathsInputSpec(FSLCommandInputSpec):
     in_file = File(exists=True, argstr="%s", mandatory=True, position=1)
@@ -67,11 +70,14 @@ def getFirstElement(inlist):
 def Lesion_extractor(name='Lesion_Extractor',
                      wf_name='Test',
                      base_dir='/homes_unix/alaurent/',
-                     input_dir=None,
                      subjects=None,
                      main=None,
                      acc=None,
-                     atlas='/homes_unix/alaurent/cbstools-public-master/atlases/brain-segmentation-prior3.0/brain-atlas-quant-3.0.8.txt'):
+                     fs_subjects_dir="/data/analyses/work_in_progress/freesurfer/fsmrishare-flair6.0/",
+                     atlas='/homes_unix/alaurent/cbstools-public-master/atlases/brain-segmentation-prior3.0/brain-atlas-quant-3.0.8.txt',
+                     conversion_dict={'csv': '/homes_unix/tsuchida/nighres/lesion_tool/FS2MGDMlabels.csv',
+                                      'src_val_colname': 'FS_label_val',
+                                      'trg_val_colname': 'brain-atlas-quant_label_val'}):
     
     wf = Workflow(wf_name)
     wf.base_dir = base_dir
@@ -79,33 +85,39 @@ def Lesion_extractor(name='Lesion_Extractor',
     #file = open(subjects,"r")
     #subjects = file.read().split("\n")
     #file.close()
-    
+    '''
+    ###############################
+    #### Subject List and Data ####
+    ###############################
+    '''    
     # Subject List
     subjectList = Node(IdentityInterface(fields=['subject_id'], mandatory_inputs=True), name="subList")
     subjectList.iterables = ('subject_id', [ sub for sub in subjects if sub != '' and sub !='\n' ] )
     
     # T1w and FLAIR
     scanList = Node(DataGrabber(infields=['subject_id'], outfields=['T1', 'FLAIR']), name="scanList")
-    scanList.inputs.base_directory = input_dir
+    scanList.inputs.base_directory = base_dir + "/input_dir"
     scanList.inputs.ignore_exception = False
     scanList.inputs.raise_on_empty = True
     scanList.inputs.sort_filelist = True
     #scanList.inputs.template = '%s/%s.nii'
     #scanList.inputs.template_args = {'T1': [['subject_id','T1*']], 
     #                                 'FLAIR': [['subject_id','FLAIR*']]}
-    scanList.inputs.template = '%s/anat/%s'
-    scanList.inputs.template_args = {'T1': [['subject_id','*_T1w.nii.gz']], 
-                                     'FLAIR': [['subject_id','*_FLAIR.nii.gz']]}  
+    scanList.inputs.template = '%s/%s'
+    scanList.inputs.template_args = {'T1': [['subject_id','*_T1w.nii*']], 
+                                     'FLAIR': [['subject_id','*_FLAIR.nii*']]}  
     wf.connect(subjectList, "subject_id", scanList, "subject_id")
     
-#     # T1w and FLAIR
-#     dg = Node(DataGrabber(outfields=['T1', 'FLAIR']), name="T1wFLAIR")
-#     dg.inputs.base_directory = "/homes_unix/alaurent/LesionPipeline"
-#     dg.inputs.template = "%s/NIFTI/*.nii.gz"
-#     dg.inputs.template_args['T1']=[['7']]
-#     dg.inputs.template_args['FLAIR']=[['9']]
-#     dg.inputs.sort_filelist=True
-
+    # Freesurfer brainmask and aseg
+    fsSource = Node(FreeSurferSource(), name='fsSource')
+    fsSource.inputs.subjects_dir = fs_subjects_dir
+    wf.connect(subjectList,'subject_id', fsSource, 'subject_id')
+    
+    '''
+    ##################
+    #### Reorient ####
+    ##################
+    '''
     # Reorient Volume
     T1Conv = Node(Reorient2Std(), name="ReorientVolume")
     T1Conv.inputs.ignore_exception = False
@@ -154,16 +166,18 @@ def Lesion_extractor(name='Lesion_Extractor',
     T1NUCirn = Node(AbcImageMaths(),name="IntensityNormalization")
     T1NUCirn.inputs.op_string = "-div"
     T1NUCirn.inputs.out_file = "normT1.nii.gz"
+    T1NUCirn.inputs.terminal_output = 'none'
     wf.connect(T1NUC,'output_image',T1NUCirn,'in_file')
     wf.connect(getMaxT1NUC,('out_stat',getElementFromList,1),T1NUCirn,"op_value")
     
     # Intensity Range Normalization (2)
-    getMaxT2NUC = Node(ImageStats(op_string= '-r'), name="getMaxT2")
+    getMaxT2NUC = Node(ImageStats(op_string= '-r'), name="getMaxT2NUC")
     wf.connect(T2flairNUC,'output_image',getMaxT2NUC,'in_file')
     
     T2NUCirn = Node(AbcImageMaths(),name="IntensityNormalization2")
     T2NUCirn.inputs.op_string = "-div"
     T2NUCirn.inputs.out_file = "normT2.nii.gz"
+    T2NUCirn.inputs.terminal_output = 'none'
     wf.connect(T2flairNUC,'output_image',T2NUCirn,'in_file')
     wf.connect(getMaxT2NUC,('out_stat',getElementFromList,1),T2NUCirn,"op_value")
     
@@ -176,26 +190,65 @@ def Lesion_extractor(name='Lesion_Extractor',
     # Optimized Automated Registration
     T2flairCoreg = Node(FLIRT(), name="OptimizedAutomatedRegistration")
     T2flairCoreg.inputs.output_type = 'NIFTI_GZ'
+    T2flairCoreg.inputs.terminal_output = 'none'
     wf.connect(T2NUCirn, "out_file", T2flairCoreg, "in_file")
     wf.connect(T1NUCirn, "out_file", T2flairCoreg, "reference")
-     
+
+    '''
+    #################################################
+    #### Reslice FS source images like main (T1) ####
+    #################################################
+    '''   
+    
+    fsAseg = Node(MRIConvert(), name="fsAseg")
+    fsAseg.inputs.ignore_exception = False
+    fsAseg.inputs.out_datatype = 'float'
+    fsAseg.inputs.out_type = 'niigz'
+    fsAseg.inputs.resample_type = 'nearest'
+    fsAseg.inputs.subjects_dir = fs_subjects_dir
+    wf.connect(fsSource, "aseg", fsAseg, "in_file")
+    wf.connect(T1NUC, "output_image", fsAseg, "reslice_like")
+    
+    fsBrainmask = Node(MRIConvert(), name="fsBrainmask")
+    fsBrainmask.inputs.ignore_exception = False
+    fsBrainmask.inputs.out_datatype = 'float'
+    fsBrainmask.inputs.out_type = 'niigz'
+    fsBrainmask.inputs.resample_type = 'nearest'
+    fsBrainmask.inputs.subjects_dir = fs_subjects_dir
+    wf.connect(fsSource, "brainmask", fsBrainmask, "in_file")
+    wf.connect(T1NUC, "output_image", fsBrainmask, "reslice_like")
+    
     '''    
     #########################
     #### SKULL-STRIPPING ####
     #########################
     '''
     
-    # SPECTRE
-    T1ss = Node(BET(), name="SPECTRE")
-    T1ss.inputs.frac = 0.45 #0.4
-    T1ss.inputs.mask = True
-    T1ss.inputs.outline = True
-    T1ss.inputs.robust = True
+#    # Simply using BET as below has high failure rate, at least in MRiSHARE.
+#    # If not using Freesurfer brainmask, we need to use better algo.
+#    T1ss = Node(BET(), name="SPECTRE")
+#    T1ss.inputs.frac = 0.45 #0.4
+#    T1ss.inputs.mask = True
+#    T1ss.inputs.outline = True
+#    T1ss.inputs.robust = True
+#    wf.connect(T1NUCirn, "out_file", T1ss, "in_file")
+    
+    # Since fsBrainmask is actually not a mask but a skull-stripped brain, make
+    # mask by binarizing (note that in MRiSHARE pipe we also erode and dialate this...)
+    binFsMask = Node(UnaryMaths(), name="binFsMask")
+    binFsMask.inputs.operation = 'bin'
+    binFsMask.inputs.output_type = 'NIFTI_GZ'
+    binFsMask.inputs.nan2zeros = True
+    wf.connect(fsBrainmask, "out_file", binFsMask, "in_file")
+    
+    T1ss = Node(ApplyMask(), name="T1ss")
+    wf.connect(binFsMask, "out_file", T1ss, "mask_file")
     wf.connect(T1NUCirn, "out_file", T1ss, "in_file")
     
     # Image Calculator
-    T2ss = Node(ApplyMask(), name="ImageCalculator")
-    wf.connect(T1ss,"mask_file",T2ss,"mask_file")
+    T2ss = Node(ApplyMask(), name="T2ss")
+#    wf.connect(T1ss, "mask_file", T2ss, "mask_file")
+    wf.connect(binFsMask, "out_file", T2ss, "mask_file")
     wf.connect(T2flairCoreg, "out_file", T2ss, "in_file")
     
     '''
@@ -241,6 +294,7 @@ def Lesion_extractor(name='Lesion_Extractor',
     T1ssNUCirn = Node(AbcImageMaths(),name="IntensityNormalization3")
     T1ssNUCirn.inputs.op_string = "-div"
     T1ssNUCirn.inputs.out_file = "normT1ss.nii.gz"
+    T1ssNUCirn.inputs.terminal_output = 'none'
     wf.connect(T1ssNUC,'output_image',T1ssNUCirn,'in_file')
     wf.connect(getMaxT1ssNUC,('out_stat',getElementFromList,1),T1ssNUCirn,"op_value")
     
@@ -251,6 +305,7 @@ def Lesion_extractor(name='Lesion_Extractor',
     T2ssNUCirn = Node(AbcImageMaths(),name="IntensityNormalization4")
     T2ssNUCirn.inputs.op_string = "-div"
     T2ssNUCirn.inputs.out_file = "normT2ss.nii.gz"
+    T2ssNUCirn.inputs.terminal_output = 'none'
     wf.connect(T2ssNUC,'output_image',T2ssNUCirn,'in_file')
     wf.connect(getMaxT2ssNUC,('out_stat',getElementFromList,1),T2ssNUCirn,"op_value")
     
@@ -286,19 +341,43 @@ def Lesion_extractor(name='Lesion_Extractor',
     ####################################
     '''
     
-    # Multi-contrast Brain Segmentation
-    MGDM = Node(MGDMSegmentation(),name='MGDM')
-    MGDM.plugin_args = {'sbatch_args':'--mem 7000'}
-    MGDM.inputs.contrast_type1 = "Mprage3T"
-    MGDM.inputs.contrast_type2 = "FLAIR3T"
-    MGDM.inputs.contrast_type3 = "PVDURA"
-    MGDM.inputs.save_data = True
-    MGDM.inputs.atlas_file = atlas
-    wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,MGDM.name),MGDM,'output_dir')
-    wf.connect(T1ssNUCirn,'out_file',MGDM,'contrast_image1')
-    wf.connect(T2ssNUCirn,'out_file',MGDM,'contrast_image2')
-    wf.connect(CSF_pv,'ridge_pv',MGDM,'contrast_image3')
+    # To use fsAseg for tissue segmentation portion of the MGDM, convert the
+    # FS labels to those of the atlas (brain-atlas-quant-3.0.8.txt)
+    # see FS2MGDMlabels.csv for conversion
     
+    FSlabels2MGDM = Node(Function(input_names=["src_label_img",
+                                               "conversion_csv",
+                                               "src_val_colname",
+                                               "trg_val_colname",
+                                               "new_label_img"],
+                                  output_names=["new_label_img"],
+                                  function=convertLabels),
+                         name="FSlabels2MGDM")
+    FSlabels2MGDM.inputs.conversion_csv = conversion_dict['csv']
+    FSlabels2MGDM.inputs.src_val_colname = conversion_dict['src_val_colname']
+    FSlabels2MGDM.inputs.trg_val_colname = conversion_dict['trg_val_colname']
+    FSlabels2MGDM.inputs.new_label_img = 'converted_labels.nii.gz'
+    wf.connect(fsAseg, "out_file", FSlabels2MGDM, "src_label_img")
+
+#     # Multi-contrast Brain Segmentation
+#     MGDM = Node(MGDMSegmentation(),name='MGDM')
+#     MGDM.plugin_args = {'sbatch_args':'--mem 7000'}
+#     MGDM.inputs.contrast_type1 = "Mprage3T"
+#     MGDM.inputs.contrast_type2 = "FLAIR3T"
+#     MGDM.inputs.contrast_type3 = "PVDURA"
+#     MGDM.inputs.save_data = True
+#     MGDM.inputs.atlas_file = atlas
+#     wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,MGDM.name),MGDM,'output_dir')
+#     wf.connect(T1ssNUCirn,'out_file',MGDM,'contrast_image1')
+#     wf.connect(T2ssNUCirn,'out_file',MGDM,'contrast_image2')
+#     wf.connect(CSF_pv,'ridge_pv',MGDM,'contrast_image3')
+    
+    # Distance based probability computation
+    BoundMap = Node(DistanceBasedProbability(),name='BoundMap')
+    BoundMap.plugin_args = {'sbatch_args':'--mem 7000'}
+    BoundMap.inputs.save_data = True
+    wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,BoundMap.name),BoundMap,'output_dir')
+    wf.connect(FSlabels2MGDM,'new_label_img',BoundMap,'segmentation_image')
     
     # Enhance Region Contrast 
     ERC = Node(EnhanceRegionContrast(),name='ERC')
@@ -310,8 +389,8 @@ def Lesion_extractor(name='Lesion_Extractor',
     ERC.inputs.atlas_file = atlas
     wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,ERC.name),ERC,'output_dir')
     wf.connect(T1ssNUC,'output_image',ERC,'intensity_image')
-    wf.connect(MGDM,'segmentation',ERC,'segmentation_image')
-    wf.connect(MGDM,'distance',ERC,'levelset_boundary_image')
+    wf.connect(FSlabels2MGDM,'new_label_img',ERC,'segmentation_image')
+    wf.connect(BoundMap,"mgdm_image",ERC,'levelset_boundary_image')
     
     # Enhance Region Contrast (2)
     ERC2 = Node(EnhanceRegionContrast(),name='ERC2')
@@ -323,8 +402,8 @@ def Lesion_extractor(name='Lesion_Extractor',
     ERC2.inputs.atlas_file = atlas
     wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,ERC2.name),ERC2,'output_dir')
     wf.connect(T2ssNUC,'output_image',ERC2,'intensity_image')
-    wf.connect(MGDM,'segmentation',ERC2,'segmentation_image')
-    wf.connect(MGDM,'distance',ERC2,'levelset_boundary_image')
+    wf.connect(FSlabels2MGDM,'new_label_img',ERC2,'segmentation_image')
+    wf.connect(BoundMap,"mgdm_image",ERC2,'levelset_boundary_image')
     
     # Define Multi-Region Priors
     DMRP = Node(DefineMultiRegionPriors(),name='DefineMultRegPriors')
@@ -335,8 +414,8 @@ def Lesion_extractor(name='Lesion_Extractor',
     DMRP.inputs.save_data = True
     DMRP.inputs.atlas_file = atlas
     wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,DMRP.name),DMRP,'output_dir')
-    wf.connect(MGDM,'segmentation',DMRP,'segmentation_image')
-    wf.connect(MGDM,'distance',DMRP,'levelset_boundary_image')
+    wf.connect(FSlabels2MGDM,'new_label_img',DMRP,'segmentation_image')
+    wf.connect(BoundMap,"mgdm_image",DMRP,'levelset_boundary_image')
     
     '''
     ###############################################
@@ -346,21 +425,21 @@ def Lesion_extractor(name='Lesion_Extractor',
     here add back all ventricle voxels from the posterior probability (without the topology constraints)
     '''
     
-    # Posterior label
-    PostLabel = Node(Split(),name='PosteriorLabel')
-    PostLabel.inputs.dimension = "t"
-    wf.connect(MGDM,'labels', PostLabel,'in_file')
+#     # Posterior label
+#     PostLabel = Node(Split(),name='PosteriorLabel')
+#     PostLabel.inputs.dimension = "t"
+#     wf.connect(FSlabels2MGDM,'new_label_img', PostLabel,'in_file')
 
     # Posterior proba
     PostProba = Node(Split(),name='PosteriorProba')
     PostProba.inputs.dimension = "t"
-    wf.connect(MGDM,'memberships', PostProba,'in_file')
+    wf.connect(BoundMap,'prob_image', PostProba,'in_file')
     
     # Threshold binary mask : ventricle label part 1
     VentLabel1 = Node(Threshold(), name="VentricleLabel1")
     VentLabel1.inputs.thresh = 10.5
     VentLabel1.inputs.direction = "below"
-    wf.connect(PostLabel,("out_files",getFirstElement), VentLabel1, "in_file")
+    wf.connect(FSlabels2MGDM,'new_label_img', VentLabel1, "in_file")
     
     # Threshold binary mask : ventricle label part 2
     VentLabel2 = Node(Threshold(), name="VentricleLabel2")
@@ -454,8 +533,8 @@ def Lesion_extractor(name='Lesion_Extractor',
     extract_WM_pvs.inputs.atlas_file = atlas
     wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,extract_WM_pvs.name),extract_WM_pvs,'output_dir')
     wf.connect(WM_pvs,'propagation',extract_WM_pvs,'probability_image')
-    wf.connect(MGDM,'segmentation',extract_WM_pvs,'segmentation_image')
-    wf.connect(MGDM,'distance',extract_WM_pvs,'levelset_boundary_image')
+    wf.connect(FSlabels2MGDM,'new_label_img',extract_WM_pvs,'segmentation_image')
+    wf.connect(BoundMap,"mgdm_image",extract_WM_pvs,'levelset_boundary_image')
     wf.connect(RmICirn,'out_file',extract_WM_pvs,'location_prior_image')
     
     '''
@@ -527,8 +606,8 @@ def Lesion_extractor(name='Lesion_Extractor',
     extract_IC_pvs.inputs.atlas_file = atlas
     wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,extract_IC_pvs.name),extract_IC_pvs,'output_dir')
     wf.connect(IC_pvs,'propagation',extract_IC_pvs,'probability_image')
-    wf.connect(MGDM,'segmentation',extract_IC_pvs,'segmentation_image')
-    wf.connect(MGDM,'distance',extract_IC_pvs,'levelset_boundary_image')
+    wf.connect(FSlabels2MGDM,'new_label_img',extract_IC_pvs,'segmentation_image')
+    wf.connect(BoundMap,"mgdm_image",extract_IC_pvs,'levelset_boundary_image')
     wf.connect(RmVentICirn,'out_file',extract_IC_pvs,'location_prior_image') 
    
     '''
@@ -573,8 +652,8 @@ def Lesion_extractor(name='Lesion_Extractor',
     extract_WMH.inputs.atlas_file = atlas
     wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,extract_WMH.name),extract_WMH,'output_dir')
     wf.connect(ERC2,'background_proba',extract_WMH,'probability_image')
-    wf.connect(MGDM,'segmentation',extract_WMH,'segmentation_image')
-    wf.connect(MGDM,'distance',extract_WMH,'levelset_boundary_image')
+    wf.connect(FSlabels2MGDM,'new_label_img',extract_WMH,'segmentation_image')
+    wf.connect(BoundMap,"mgdm_image",extract_WMH,'levelset_boundary_image')
     wf.connect(AddVentHornsirn,'out_file',extract_WMH,'location_prior_image')
     
     #===========================================================================
@@ -636,8 +715,8 @@ def Lesion_extractor(name='Lesion_Extractor',
     extract_round_WMH.inputs.atlas_file = atlas
     wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,extract_round_WMH.name),extract_round_WMH,'output_dir')
     wf.connect(round_WMH,'ridge_pv',extract_round_WMH,'probability_image')
-    wf.connect(MGDM,'segmentation',extract_round_WMH,'segmentation_image')
-    wf.connect(MGDM,'distance',extract_round_WMH,'levelset_boundary_image')
+    wf.connect(FSlabels2MGDM,'new_label_img',extract_round_WMH,'segmentation_image')
+    wf.connect(BoundMap,'mgdm_image',extract_round_WMH,'levelset_boundary_image')
     wf.connect(AddVentHornsirn,'out_file',extract_round_WMH,'location_prior_image')
     
     #===========================================================================
@@ -700,7 +779,7 @@ def Lesion_extractor(name='Lesion_Extractor',
     WMH_mul.inputs.op_string = "-mul"
     WMH_mul.inputs.out_file = "final_mask.nii.gz"
     wf.connect(WMH,"out_file", WMH_mul,"in_file")
-    wf.connect(MGDM,"distance", WMH_mul, "in_file2")
+    wf.connect(BoundMap,"mgdm_image", WMH_mul, "in_file2")
     
     #===========================================================================
     # WMH2_mul = Node(ImageMaths(), name="WMH2_mul")
@@ -791,7 +870,7 @@ def Lesion_extractor(name='Lesion_Extractor',
     wf.connect(DVRS_mask,'out_file',DVRS_Output,'mask')
     
     
-    WMH_output=Node(IdentityInterface(fields=['mask1025','mask1050','mask1075','mask2025','mask2050','mask2075','mask3025','mask3050','mask3075']), name='WMH_output')
+    WMH_output=Node(IdentityInterface(fields=['mask1025','mask1050','mask1075','mask2025','mask2050','mask2075','mask3025','mask3050','mask3075','test','test2','test3','test4']), name='WMH_output')
     wf.connect(WMH1_025,'out_file',WMH_output,'mask1025')
     #wf.connect(WMH2_025,'out_file',WMH_output,'mask2025')
     #wf.connect(WMH3_025,'out_file',WMH_output,'mask3025')
@@ -801,6 +880,10 @@ def Lesion_extractor(name='Lesion_Extractor',
     wf.connect(WMH1_075,'out_file',WMH_output,'mask1075')
     #wf.connect(WMH2_075,'out_file',WMH_output,'mask2070')
     #wf.connect(WMH3_075,'out_file',WMH_output,'mask3075')
+    wf.connect(BoundMap,'prob_image',WMH_output,'test')
+    wf.connect(BoundMap,'max_label',WMH_output,'test4')
+    wf.connect(BoundMap,'mgdm_image',WMH_output,'test2')
+    wf.connect(BoundMap,'bg_mask',WMH_output,'test3')
 
 
     return wf

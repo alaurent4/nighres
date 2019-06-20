@@ -8,6 +8,8 @@ Extraction launcher interface
 import sys
 import os
 import pickle
+import cbstools
+import shutil
 
 from PyQt4.QtGui import *
 from PyQt4.QtCore import *
@@ -31,6 +33,7 @@ class LesionTool(QMainWindow, Ui_LesionTool):
         self.connectActions()
         
         self.grid_selector.addItems(QStringList(['',
+                                                 'locally',
                                                  'normal',
                                                  'highmem',
                                                  'gindev']))
@@ -42,7 +45,7 @@ class LesionTool(QMainWindow, Ui_LesionTool):
         
         # set current directory as working directory by default
         self.workDir.setText(QString(os.path.abspath('.')))
-        
+        self.atlas.setText(QString(os.path.join("/".join(cbstools.__file__.split("/")[0:-3]),'atlases','brain-segmentation-prior3.0','brain-atlas-quant-3.0.8.txt')))
    
     def connectActions(self):
         '''
@@ -86,7 +89,15 @@ class LesionTool(QMainWindow, Ui_LesionTool):
         workdirSelector.setFileMode(QFileDialog.DirectoryOnly)
         self.connect(workdirSelector,SIGNAL('fileSelected(QString)'), self.workDir,SLOT('setText(QString)'))
         self.pushButton_workDir.clicked.connect(workdirSelector.exec_)
-    
+        
+        txtFileSelector = QFileDialog(parent=self,
+                                      caption='Pick a txt file file containing a list of subjects...',
+                                      directory=os.getcwd(),
+                                      filter='txt files (*.txt)')
+        txtFileSelector.setFileMode(QFileDialog.AnyFile)
+        txtFileSelector.fileSelected.connect(self.selectFromFileExperiments)
+        self.selectFromFile.clicked.connect(txtFileSelector.exec_)
+        
     def loadSubjects(self):
         '''
         Load contents of input folder for BIDS structure.
@@ -95,6 +106,8 @@ class LesionTool(QMainWindow, Ui_LesionTool):
         folder = str(self.inputDir.text())
         if os.path.isdir(folder):
             subjects = os.listdir(folder)
+            # remove potential dummy subjects beginning with a dot
+            subjects = [s for s in subjects if s[0] != '.']
             project = folder.split("/")[-1]
             if project == "":
                 project = folder.split("/")[-2]
@@ -144,6 +157,23 @@ class LesionTool(QMainWindow, Ui_LesionTool):
             for i in rows:
                 self.SubjectWidget.item(i,0).setCheckState(Qt.Checked)    
         return
+    
+    def selectFromFileExperiments(self, subject_list):
+        '''
+        Mark all experiments from a .txt file loaded in the box as checked
+        '''
+        with open(subject_list) as f:
+            subjects = f.read().splitlines()
+            
+        str_list = []
+        for i in range(0,self.SubjectWidget.rowCount()):
+            str_list.append(str(self.SubjectWidget.item(i,1).text()))
+        for sub in subjects:
+            try:
+                self.SubjectWidget.item(str_list.index(sub),0).setCheckState(Qt.Checked)
+            except:
+                print('Warning: ' + sub + ' not found')
+        return 
              
     def extract(self):
         '''
@@ -165,10 +195,16 @@ class LesionTool(QMainWindow, Ui_LesionTool):
         
         atlas = str(self.atlas.text())
         grid = str(self.grid_selector.currentText())
+        
+        if not self.skipDownload.isChecked():
+            if not os.path.isdir(base_dir + '/input_dir'):
+                    os.mkdir(base_dir + '/input_dir')
+            for sub in subjects:
+                shutil.copytree('/'.join([input_dir,sub,"anat"]), '/'.join([base_dir,"input_dir",sub])) 
 
         try:
             #wf.run('SLURM',plugin_args={'sbatch_args': '-p gindev'})
-            subprocess.call(['exec.py',wf_name,base_dir,input_dir,"subjects.pkl",atlas,grid]) 
+            subprocess.call(['exec.py',wf_name,base_dir,"subjects.pkl",atlas,grid]) 
             print('Extraction ran successfully')
             
         except:

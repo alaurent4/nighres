@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Form implementation generated from reading ui file 'nighres/lesion_tool/interface.ui'
+# Form implementation generated from reading ui file 'interface.ui'
 #
 # Created by: PyQt4 UI code generator 4.11.4
 #
@@ -61,6 +61,9 @@ class Ui_LesionTool(object):
         self.experimentsWidget.addWidget(self.SubjectWidget)
         self.horizontalLayout = QtGui.QHBoxLayout()
         self.horizontalLayout.setObjectName(_fromUtf8("horizontalLayout"))
+        self.selectFromFile = QtGui.QPushButton(self.verticalLayoutWidget_2)
+        self.selectFromFile.setObjectName(_fromUtf8("selectFromFile"))
+        self.horizontalLayout.addWidget(self.selectFromFile)
         self.selectionToggle = QtGui.QPushButton(self.verticalLayoutWidget_2)
         self.selectionToggle.setObjectName(_fromUtf8("selectionToggle"))
         self.horizontalLayout.addWidget(self.selectionToggle)
@@ -163,6 +166,9 @@ class Ui_LesionTool(object):
         self.runButton.setLayoutDirection(QtCore.Qt.LeftToRight)
         self.runButton.setDescription(_fromUtf8(""))
         self.runButton.setObjectName(_fromUtf8("runButton"))
+        self.skipDownload = QtGui.QCheckBox(self.centralwidget)
+        self.skipDownload.setGeometry(QtCore.QRect(20, 500, 281, 21))
+        self.skipDownload.setObjectName(_fromUtf8("skipDownload"))
         LesionTool.setCentralWidget(self.centralwidget)
         self.statusBar = QtGui.QStatusBar(LesionTool)
         self.statusBar.setEnabled(True)
@@ -182,6 +188,7 @@ class Ui_LesionTool(object):
         LesionTool.setWindowTitle(_translate("LesionTool", "WAIMEA Tool", None))
         self.label_29.setText(_translate("LesionTool", "Grid", None))
         self.SubjectWidget.setSortingEnabled(True)
+        self.selectFromFile.setText(_translate("LesionTool", "Check from file", None))
         self.selectionToggle.setText(_translate("LesionTool", "Check selected", None))
         self.selectAll.setText(_translate("LesionTool", "Check all", None))
         self.unselectAll.setText(_translate("LesionTool", "Uncheck all", None))
@@ -203,6 +210,7 @@ class Ui_LesionTool(object):
         self.label_6.setText(_translate("LesionTool", "<html><head/><body><p><span style=\" font-weight:600;\">3. Choose the subjects with the right-side box -----------------&gt;</span></p></body></html>", None))
         self.runButton.setToolTip(_translate("LesionTool", "launch the selected pipeline on the selected data with current parameters", None))
         self.runButton.setText(_translate("LesionTool", "Run Extraction", None))
+        self.skipDownload.setText(_translate("LesionTool", "Skip downloading part", None))
         self.actionConfigure.setText(_translate("LesionTool", "manage configurations", None))
         self.actionAbout.setText(_translate("LesionTool", "About...", None))
         self.actionQuit.setText(_translate("LesionTool", "quit", None))
