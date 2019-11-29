@@ -92,7 +92,11 @@ def Lesion_extractor(name='Lesion_Extractor',
     '''    
     # Subject List
     subjectList = Node(IdentityInterface(fields=['subject_id'], mandatory_inputs=True), name="subList")
-    subjectList.iterables = ('subject_id', [ sub for sub in subjects if sub != '' and sub !='\n' ] )
+    if len(subjects) > 1:
+        subjectList.iterables = ('subject_id', [ sub for sub in subjects if sub != '' and sub !='\n' ] )
+    else:
+        subjectList.inputs.subject_id = subjects[0]
+        
     
     # T1w and FLAIR
     scanList = Node(DataGrabber(infields=['subject_id'], outfields=['T1', 'FLAIR']), name="scanList")
