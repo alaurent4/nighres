@@ -57,9 +57,12 @@ def getElementFromList(inlist,idx,slc=None):
             outlist=inlist[idx:slc]
     return outlist
 
-def createOutputDir(sub,base,name,nodename):
+def createOutputDir(sub,base,name,nodename,single):
     import os
-    return os.path.join(base,name,'_subject_id_'+sub,nodename)
+    if single:
+        return os.path.join(base,name,nodename)
+    else:
+        return os.path.join(base,name,'_subject_id_'+sub,nodename)
 
 def getFirstElement(inlist):
     '''
@@ -75,12 +78,18 @@ def Lesion_extractor(name='Lesion_Extractor',
                      acc=None,
                      fs_subjects_dir="/data/analyses/work_in_progress/freesurfer/fsmrishare-flair6.0/",
                      atlas='/homes_unix/alaurent/cbstools-public-master/atlases/brain-segmentation-prior3.0/brain-atlas-quant-3.0.8.txt',
-                     conversion_dict={'csv': '/homes_unix/tsuchida/nighres/lesion_tool/FS2MGDMlabels.csv',
-                                      'src_val_colname': 'FS_label_val',
-                                      'trg_val_colname': 'brain-atlas-quant_label_val'}):
+                     labels='/homes_unix/tsuchida/nighres/lesion_tool/FS2MGDMlabels.csv'):
+                     #conversion_dict={'csv': '/homes_unix/tsuchida/nighres/lesion_tool/FS2MGDMlabels.csv',
+                     #                 'src_val_colname': 'FS_label_val',
+                     #                 'trg_val_colname': 'brain-atlas-quant_label_val'}):
     
     wf = Workflow(wf_name)
     wf.base_dir = base_dir
+    
+    if len(subjects) > 1:
+        single = False
+    else:
+        single = True
     
     #file = open(subjects,"r")
     #subjects = file.read().split("\n")
@@ -125,14 +134,12 @@ def Lesion_extractor(name='Lesion_Extractor',
     # Reorient Volume
     T1Conv = Node(Reorient2Std(), name="ReorientVolume")
     T1Conv.inputs.ignore_exception = False
-    T1Conv.inputs.terminal_output = 'none'
     T1Conv.inputs.out_file = "T1_reoriented.nii.gz"
     wf.connect(scanList, "T1", T1Conv, "in_file")
     
     # Reorient Volume (2)
     T2flairConv = Node(Reorient2Std(), name="ReorientVolume2")
     T2flairConv.inputs.ignore_exception = False
-    T2flairConv.inputs.terminal_output = 'none'
     T2flairConv.inputs.out_file = "FLAIR_reoriented.nii.gz"
     wf.connect(scanList, "FLAIR", T2flairConv, "in_file")
     
@@ -143,7 +150,6 @@ def Lesion_extractor(name='Lesion_Extractor',
     T1NUC.inputs.ignore_exception = False
     T1NUC.inputs.num_threads = 1
     T1NUC.inputs.save_bias = False
-    T1NUC.inputs.terminal_output = 'none'
     wf.connect(T1Conv, "out_file", T1NUC , "input_image")
         
     # N3 Correction (2)
@@ -153,7 +159,6 @@ def Lesion_extractor(name='Lesion_Extractor',
     T2flairNUC.inputs.ignore_exception = False
     T2flairNUC.inputs.num_threads = 1
     T2flairNUC.inputs.save_bias = False
-    T2flairNUC.inputs.terminal_output = 'none'
     wf.connect(T2flairConv, "out_file", T2flairNUC, "input_image")
     
     '''
@@ -170,7 +175,6 @@ def Lesion_extractor(name='Lesion_Extractor',
     T1NUCirn = Node(AbcImageMaths(),name="IntensityNormalization")
     T1NUCirn.inputs.op_string = "-div"
     T1NUCirn.inputs.out_file = "normT1.nii.gz"
-    T1NUCirn.inputs.terminal_output = 'none'
     wf.connect(T1NUC,'output_image',T1NUCirn,'in_file')
     wf.connect(getMaxT1NUC,('out_stat',getElementFromList,1),T1NUCirn,"op_value")
     
@@ -181,7 +185,6 @@ def Lesion_extractor(name='Lesion_Extractor',
     T2NUCirn = Node(AbcImageMaths(),name="IntensityNormalization2")
     T2NUCirn.inputs.op_string = "-div"
     T2NUCirn.inputs.out_file = "normT2.nii.gz"
-    T2NUCirn.inputs.terminal_output = 'none'
     wf.connect(T2flairNUC,'output_image',T2NUCirn,'in_file')
     wf.connect(getMaxT2NUC,('out_stat',getElementFromList,1),T2NUCirn,"op_value")
     
@@ -194,7 +197,6 @@ def Lesion_extractor(name='Lesion_Extractor',
     # Optimized Automated Registration
     T2flairCoreg = Node(FLIRT(), name="OptimizedAutomatedRegistration")
     T2flairCoreg.inputs.output_type = 'NIFTI_GZ'
-    T2flairCoreg.inputs.terminal_output = 'none'
     wf.connect(T2NUCirn, "out_file", T2flairCoreg, "in_file")
     wf.connect(T1NUCirn, "out_file", T2flairCoreg, "reference")
 
@@ -269,7 +271,6 @@ def Lesion_extractor(name='Lesion_Extractor',
     T1ssNUC.inputs.ignore_exception = False
     T1ssNUC.inputs.num_threads = 1
     T1ssNUC.inputs.save_bias = False
-    T1ssNUC.inputs.terminal_output = 'none'
     wf.connect(T1ss, "out_file", T1ssNUC, "input_image")
     
     # N3 Correction (4)
@@ -279,7 +280,6 @@ def Lesion_extractor(name='Lesion_Extractor',
     T2ssNUC.inputs.ignore_exception = False
     T2ssNUC.inputs.num_threads = 1
     T2ssNUC.inputs.save_bias = False
-    T2ssNUC.inputs.terminal_output = 'none'
     wf.connect(T2ss, "out_file", T2ssNUC, "input_image")
     
     '''
@@ -298,7 +298,6 @@ def Lesion_extractor(name='Lesion_Extractor',
     T1ssNUCirn = Node(AbcImageMaths(),name="IntensityNormalization3")
     T1ssNUCirn.inputs.op_string = "-div"
     T1ssNUCirn.inputs.out_file = "normT1ss.nii.gz"
-    T1ssNUCirn.inputs.terminal_output = 'none'
     wf.connect(T1ssNUC,'output_image',T1ssNUCirn,'in_file')
     wf.connect(getMaxT1ssNUC,('out_stat',getElementFromList,1),T1ssNUCirn,"op_value")
     
@@ -309,7 +308,6 @@ def Lesion_extractor(name='Lesion_Extractor',
     T2ssNUCirn = Node(AbcImageMaths(),name="IntensityNormalization4")
     T2ssNUCirn.inputs.op_string = "-div"
     T2ssNUCirn.inputs.out_file = "normT2ss.nii.gz"
-    T2ssNUCirn.inputs.terminal_output = 'none'
     wf.connect(T2ssNUC,'output_image',T2ssNUCirn,'in_file')
     wf.connect(getMaxT2ssNUC,('out_stat',getElementFromList,1),T2ssNUCirn,"op_value")
     
@@ -336,7 +334,7 @@ def Lesion_extractor(name='Lesion_Extractor',
     CSF_pv.inputs.max_iter = 100
     CSF_pv.inputs.max_diff = 0.001
     CSF_pv.inputs.save_data = True
-    wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,CSF_pv.name),CSF_pv,'output_dir')
+    wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,CSF_pv.name,single),CSF_pv,'output_dir')
     wf.connect(T1ssNUCirn,'out_file',CSF_pv,'input_image')
     
     '''
@@ -357,9 +355,9 @@ def Lesion_extractor(name='Lesion_Extractor',
                                   output_names=["new_label_img"],
                                   function=convertLabels),
                          name="FSlabels2MGDM")
-    FSlabels2MGDM.inputs.conversion_csv = conversion_dict['csv']
-    FSlabels2MGDM.inputs.src_val_colname = conversion_dict['src_val_colname']
-    FSlabels2MGDM.inputs.trg_val_colname = conversion_dict['trg_val_colname']
+    FSlabels2MGDM.inputs.conversion_csv = labels #conversion_dict['csv']
+    FSlabels2MGDM.inputs.src_val_colname = 'FS_label_val' #conversion_dict['src_val_colname']
+    FSlabels2MGDM.inputs.trg_val_colname = 'brain-atlas-quant_label_val' #conversion_dict['trg_val_colname']
     FSlabels2MGDM.inputs.new_label_img = 'converted_labels.nii.gz'
     wf.connect(fsAseg, "out_file", FSlabels2MGDM, "src_label_img")
 
@@ -371,7 +369,7 @@ def Lesion_extractor(name='Lesion_Extractor',
 #     MGDM.inputs.contrast_type3 = "PVDURA"
 #     MGDM.inputs.save_data = True
 #     MGDM.inputs.atlas_file = atlas
-#     wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,MGDM.name),MGDM,'output_dir')
+#     wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,MGDM.name,single),MGDM,'output_dir')
 #     wf.connect(T1ssNUCirn,'out_file',MGDM,'contrast_image1')
 #     wf.connect(T2ssNUCirn,'out_file',MGDM,'contrast_image2')
 #     wf.connect(CSF_pv,'ridge_pv',MGDM,'contrast_image3')
@@ -380,7 +378,7 @@ def Lesion_extractor(name='Lesion_Extractor',
     BoundMap = Node(DistanceBasedProbability(),name='BoundMap')
     BoundMap.plugin_args = {'sbatch_args':'--mem 7000'}
     BoundMap.inputs.save_data = True
-    wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,BoundMap.name),BoundMap,'output_dir')
+    wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,BoundMap.name,single),BoundMap,'output_dir')
     wf.connect(FSlabels2MGDM,'new_label_img',BoundMap,'segmentation_image')
     
     # Enhance Region Contrast 
@@ -391,7 +389,7 @@ def Lesion_extractor(name='Lesion_Extractor',
     ERC.inputs.partial_voluming_distance = 2.0
     ERC.inputs.save_data = True
     ERC.inputs.atlas_file = atlas
-    wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,ERC.name),ERC,'output_dir')
+    wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,ERC.name,single),ERC,'output_dir')
     wf.connect(T1ssNUC,'output_image',ERC,'intensity_image')
     wf.connect(FSlabels2MGDM,'new_label_img',ERC,'segmentation_image')
     wf.connect(BoundMap,"mgdm_image",ERC,'levelset_boundary_image')
@@ -404,7 +402,7 @@ def Lesion_extractor(name='Lesion_Extractor',
     ERC2.inputs.partial_voluming_distance = 2.0
     ERC2.inputs.save_data = True
     ERC2.inputs.atlas_file = atlas
-    wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,ERC2.name),ERC2,'output_dir')
+    wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,ERC2.name,single),ERC2,'output_dir')
     wf.connect(T2ssNUC,'output_image',ERC2,'intensity_image')
     wf.connect(FSlabels2MGDM,'new_label_img',ERC2,'segmentation_image')
     wf.connect(BoundMap,"mgdm_image",ERC2,'levelset_boundary_image')
@@ -417,7 +415,7 @@ def Lesion_extractor(name='Lesion_Extractor',
     DMRP.inputs.distance_offset = 3.0
     DMRP.inputs.save_data = True
     DMRP.inputs.atlas_file = atlas
-    wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,DMRP.name),DMRP,'output_dir')
+    wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,DMRP.name,single),DMRP,'output_dir')
     wf.connect(FSlabels2MGDM,'new_label_img',DMRP,'segmentation_image')
     wf.connect(BoundMap,"mgdm_image",DMRP,'levelset_boundary_image')
     
@@ -500,7 +498,7 @@ def Lesion_extractor(name='Lesion_Extractor',
     WM_Orient = Node(ProbabilityToLevelset(),name='WM_Orientation')
     WM_Orient.plugin_args = {'sbatch_args':'--mem 6000'}
     WM_Orient.inputs.save_data = True
-    wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,WM_Orient.name),WM_Orient,'output_dir')
+    wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,WM_Orient.name,single),WM_Orient,'output_dir')
     wf.connect(RmICirn,'out_file',WM_Orient,'probability_image')
 
     # Recursive Ridge Diffusion : PVS in WM only
@@ -519,7 +517,7 @@ def Lesion_extractor(name='Lesion_Extractor',
     WM_pvs.inputs.max_iter = 100
     WM_pvs.inputs.max_diff = 0.001
     WM_pvs.inputs.save_data = True
-    wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,WM_pvs.name),WM_pvs,'output_dir')
+    wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,WM_pvs.name,single),WM_pvs,'output_dir')
     wf.connect(ERC,'background_proba',WM_pvs,'input_image')
     wf.connect(WM_Orient,'levelset',WM_pvs,'surface_levelset')
     wf.connect(RmICirn,'out_file',WM_pvs,'loc_prior')
@@ -535,7 +533,7 @@ def Lesion_extractor(name='Lesion_Extractor',
     extract_WM_pvs.inputs.small_lesion_size = 4.0
     extract_WM_pvs.inputs.save_data = True
     extract_WM_pvs.inputs.atlas_file = atlas
-    wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,extract_WM_pvs.name),extract_WM_pvs,'output_dir')
+    wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,extract_WM_pvs.name,single),extract_WM_pvs,'output_dir')
     wf.connect(WM_pvs,'propagation',extract_WM_pvs,'probability_image')
     wf.connect(FSlabels2MGDM,'new_label_img',extract_WM_pvs,'segmentation_image')
     wf.connect(BoundMap,"mgdm_image",extract_WM_pvs,'levelset_boundary_image')
@@ -573,7 +571,7 @@ def Lesion_extractor(name='Lesion_Extractor',
     IC_Orient = Node(ProbabilityToLevelset(),name='IC_Orientation')
     IC_Orient.plugin_args = {'sbatch_args':'--mem 6000'}
     IC_Orient.inputs.save_data = True
-    wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,IC_Orient.name),IC_Orient,'output_dir')
+    wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,IC_Orient.name,single),IC_Orient,'output_dir')
     wf.connect(RmVentICirn,'out_file',IC_Orient,'probability_image')
     
     # Recursive Ridge Diffusion : PVS in IC only
@@ -592,7 +590,7 @@ def Lesion_extractor(name='Lesion_Extractor',
     IC_pvs.inputs.max_iter = 100
     IC_pvs.inputs.max_diff = 0.001
     IC_pvs.inputs.save_data = True
-    wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,IC_pvs.name),IC_pvs,'output_dir')
+    wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,IC_pvs.name,single),IC_pvs,'output_dir')
     wf.connect(ERC,'background_proba',IC_pvs,'input_image')
     wf.connect(IC_Orient,'levelset',IC_pvs,'surface_levelset')
     wf.connect(RmVentICirn,'out_file',IC_pvs,'loc_prior')  
@@ -608,7 +606,7 @@ def Lesion_extractor(name='Lesion_Extractor',
     extract_IC_pvs.inputs.small_lesion_size = 4.0
     extract_IC_pvs.inputs.save_data = True
     extract_IC_pvs.inputs.atlas_file = atlas
-    wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,extract_IC_pvs.name),extract_IC_pvs,'output_dir')
+    wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,extract_IC_pvs.name,single),extract_IC_pvs,'output_dir')
     wf.connect(IC_pvs,'propagation',extract_IC_pvs,'probability_image')
     wf.connect(FSlabels2MGDM,'new_label_img',extract_IC_pvs,'segmentation_image')
     wf.connect(BoundMap,"mgdm_image",extract_IC_pvs,'levelset_boundary_image')
@@ -654,7 +652,7 @@ def Lesion_extractor(name='Lesion_Extractor',
     extract_WMH.inputs.small_lesion_size = 4.0
     extract_WMH.inputs.save_data = True
     extract_WMH.inputs.atlas_file = atlas
-    wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,extract_WMH.name),extract_WMH,'output_dir')
+    wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,extract_WMH.name,single),extract_WMH,'output_dir')
     wf.connect(ERC2,'background_proba',extract_WMH,'probability_image')
     wf.connect(FSlabels2MGDM,'new_label_img',extract_WMH,'segmentation_image')
     wf.connect(BoundMap,"mgdm_image",extract_WMH,'levelset_boundary_image')
@@ -663,7 +661,7 @@ def Lesion_extractor(name='Lesion_Extractor',
     #===========================================================================
     # extract_WMH2 = extract_WMH.clone(name='Extract_WMH2')
     # extract_WMH2.inputs.gm_boundary_partial_vol_dist = 2.0
-    # wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,extract_WMH2.name),extract_WMH2,'output_dir')
+    # wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,extract_WMH2.name,single),extract_WMH2,'output_dir')
     # wf.connect(ERC2,'background_proba',extract_WMH2,'probability_image')
     # wf.connect(MGDM,'segmentation',extract_WMH2,'segmentation_image')
     # wf.connect(MGDM,'distance',extract_WMH2,'levelset_boundary_image')
@@ -671,7 +669,7 @@ def Lesion_extractor(name='Lesion_Extractor',
     # 
     # extract_WMH3 = extract_WMH.clone(name='Extract_WMH3')
     # extract_WMH3.inputs.gm_boundary_partial_vol_dist = 3.0
-    # wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,extract_WMH3.name),extract_WMH3,'output_dir')
+    # wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,extract_WMH3.name,single),extract_WMH3,'output_dir')
     # wf.connect(ERC2,'background_proba',extract_WMH3,'probability_image')
     # wf.connect(MGDM,'segmentation',extract_WMH3,'segmentation_image')
     # wf.connect(MGDM,'distance',extract_WMH3,'levelset_boundary_image')
@@ -702,7 +700,7 @@ def Lesion_extractor(name='Lesion_Extractor',
     round_WMH.inputs.max_iter = 100
     round_WMH.inputs.max_diff = 0.001
     round_WMH.inputs.save_data = True
-    wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,round_WMH.name),round_WMH,'output_dir')
+    wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,round_WMH.name,single),round_WMH,'output_dir')
     wf.connect(ERC2,'background_proba',round_WMH,'input_image')
     wf.connect(AddVentHornsirn,'out_file',round_WMH,'loc_prior')  
      
@@ -717,7 +715,7 @@ def Lesion_extractor(name='Lesion_Extractor',
     extract_round_WMH.inputs.small_lesion_size = 6.0
     extract_round_WMH.inputs.save_data = True
     extract_round_WMH.inputs.atlas_file = atlas
-    wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,extract_round_WMH.name),extract_round_WMH,'output_dir')
+    wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,extract_round_WMH.name,single),extract_round_WMH,'output_dir')
     wf.connect(round_WMH,'ridge_pv',extract_round_WMH,'probability_image')
     wf.connect(FSlabels2MGDM,'new_label_img',extract_round_WMH,'segmentation_image')
     wf.connect(BoundMap,'mgdm_image',extract_round_WMH,'levelset_boundary_image')
@@ -726,7 +724,7 @@ def Lesion_extractor(name='Lesion_Extractor',
     #===========================================================================
     # extract_round_WMH2 = extract_round_WMH.clone(name='Extract_round_WMH2')
     # extract_round_WMH2.inputs.gm_boundary_partial_vol_dist = 2.0
-    # wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,extract_round_WMH2.name),extract_round_WMH2,'output_dir')
+    # wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,extract_round_WMH2.name,single),extract_round_WMH2,'output_dir')
     # wf.connect(round_WMH,'ridge_pv',extract_round_WMH2,'probability_image')
     # wf.connect(MGDM,'segmentation',extract_round_WMH2,'segmentation_image')
     # wf.connect(MGDM,'distance',extract_round_WMH2,'levelset_boundary_image')
@@ -734,7 +732,7 @@ def Lesion_extractor(name='Lesion_Extractor',
     # 
     # extract_round_WMH3 = extract_round_WMH.clone(name='Extract_round_WMH3')
     # extract_round_WMH3.inputs.gm_boundary_partial_vol_dist = 2.0
-    # wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,extract_round_WMH3.name),extract_round_WMH3,'output_dir')
+    # wf.connect(subjectList,('subject_id',createOutputDir,wf.base_dir,wf.name,extract_round_WMH3.name,single),extract_round_WMH3,'output_dir')
     # wf.connect(round_WMH,'ridge_pv',extract_round_WMH3,'probability_image')
     # wf.connect(MGDM,'segmentation',extract_round_WMH3,'segmentation_image')
     # wf.connect(MGDM,'distance',extract_round_WMH3,'levelset_boundary_image')

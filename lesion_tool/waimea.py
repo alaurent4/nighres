@@ -16,13 +16,13 @@ from nighres.lesion_tool.lesion_pipeline import Lesion_extractor
 
 def main():
     try:
-        o, a = getopt.getopt(sys.argv[1:], "n:d:s:a:")
+        o, a = getopt.getopt(sys.argv[1:], "n:d:s:f:a:l:")
     except getopt.GetoptError as err:
         print(err)
-        print('waimea.py -n <subjects_dir> -d <directory> -s <subject> -a <atlas>')
+        print('waimea.py -n <directory> -d <base_directory> -s <subject> -f <freesurfer dir> -a <atlas> -l <labels>')
         sys.exit(2)
     if len(o) < 4:
-        print('waimea.py -f <subjects_dir> -d <directory> -s <subject> -a <atlas>')
+        print('waimea.py -n <directory> -d <base_directory> -s <subject> -f <freesurfer dir> -a <atlas> -l <labels>')
         sys.exit(2)
     for opt, arg in o:
         if opt == '-n':
@@ -31,15 +31,21 @@ def main():
             base_dir = arg
         elif opt == '-s':
             sub = arg
+        elif opt == '-f':
+            fsdir = arg
         elif opt == '-a':
             atlas = arg
+        elif opt == '-l':
+            labels = arg
             
     wf = Lesion_extractor(wf_name=wf_name,
                           base_dir=base_dir,
                           subjects=[sub],
                           #main=main,
                           #acc=acc,
-                          atlas=atlas)
+                          atlas=atlas,
+                          fs_subjects_dir=fsdir,
+                          labels=labels)
          
     config.update_config({'logging': {'log_directory': wf.base_dir,'log_to_file': True}})
     logging.update_logging(config)
